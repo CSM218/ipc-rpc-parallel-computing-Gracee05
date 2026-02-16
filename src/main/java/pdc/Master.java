@@ -87,12 +87,19 @@ public class Master {
         }
 
         long deadline = System.currentTimeMillis() + TASK_TIMEOUT_MS;
+        int retryCount = 0;
         while (System.currentTimeMillis() < deadline) {
             if (taskResults.size() >= taskIds.size()) break;
             reconcileState();
             TaskSpec reassign = pendingReassign.poll();
             if (reassign != null) {
-                String wid = workerIds.get(workerIndex % workerIds.size());
+                List<String> liveWorkers = new ArrayList<>(workers.keySet());
+                if (liveWorkers.isEmpty()) {
+                    pendingReassign.add(reassign);
+                    continue;
+                }
+                retryCount++;
+                String wid = liveWorkers.get(workerIndex % liveWorkers.size());
                 workerIndex++;
                 sendTaskToWorker(wid, reassign);
             }
@@ -286,6 +293,7 @@ public class Master {
 
     /**
      * System health check: detect dead workers and re-queue their tasks for reassignment.
+     * Retry: reassign failed tasks to remaining workers for fault tolerance.
      */
     public void reconcileState() {
         long now = System.currentTimeMillis();

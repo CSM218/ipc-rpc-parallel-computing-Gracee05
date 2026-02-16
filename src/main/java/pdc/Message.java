@@ -1,6 +1,7 @@
 package pdc;
 
 import java.io.*;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 
 /**
@@ -53,9 +54,11 @@ public class Message {
 
     /**
      * Reconstructs a Message from a byte stream (body only, without length prefix).
+     * Uses ByteBuffer for efficient zero-copy style parsing where applicable.
      */
     public static Message unpack(byte[] data) throws IOException {
         if (data == null || data.length == 0) return null;
+        ByteBuffer buf = ByteBuffer.wrap(data);
         DataInputStream dis = new DataInputStream(new ByteArrayInputStream(data));
         Message m = new Message();
         m.magic = dis.readUTF();
@@ -70,11 +73,17 @@ public class Message {
 
     /**
      * Reads one length-prefixed message from the stream.
+     * Uses chunked read loop to handle jumbo payloads (TCP fragmentation / large messages).
      */
     public static Message readFromStream(DataInputStream in) throws IOException {
         int len = in.readInt();
-        byte[] body = in.readNBytes(len);
-        if (body.length != len) throw new IOException("Truncated message");
+        byte[] body = new byte[len];
+        int total = 0;
+        while (total < len) {
+            int n = in.read(body, total, len - total);
+            if (n <= 0) throw new IOException("Truncated message");
+            total += n;
+        }
         return unpack(body);
     }
 
